@@ -56,7 +56,7 @@ class Controller(Node):
         # !TODO: lookahead point publisher
         self.pub_lookahead_ = self.create_publisher(
             PoseStamped,
-            'lookahead_point',
+            'lookahead',
             10
         )
         # Handles: Timers
@@ -75,12 +75,7 @@ class Controller(Node):
             return  # do not update the path if no path is returned. This will ensure the copied path contains at least one point when the first non-empty path is received.
 
         # !TODO: copy the array from the path
-        self.path_poses_ = []
-
-        for pose in msg.poses:
-            x = pose.pose.position.x
-            y = pose.pose.position.y
-            self.path_poses_.append((x,y))
+        self.path_poses_ = list(msg.poses)
 
         self.received_path_ = True
 
@@ -91,7 +86,10 @@ class Controller(Node):
         self.rbt_y_ = msg.pose.pose.position.y
         q = msg.pose.pose.orientation
 
-        self.rbt_yaw_ = 2.0 * atan2(q.z, q.w)
+        self.rbt_yaw_ = atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
 
         self.received_odom_ = True
 
@@ -103,8 +101,8 @@ class Controller(Node):
         closest_dist = inf
 
         for i, pose in enumerate(self.path_poses_):
-            x, y = pose
-            dist = hypot(x-self.rbt_x_, y-self.rbt_y_)
+            dist = hypot(pose.pose.position.x - self.rbt_x_,
+                         pose.pose.position.y - self.rbt_y_)
 
             if dist<closest_dist:
                 closest_dist = dist
@@ -115,9 +113,9 @@ class Controller(Node):
         lookahead_idx = len(self.path_poses_) - 1
 
         for i in range(closest_idx, len(self.path_poses_)):
-            x, y = self.path_poses_[i]
-
-            dist = hypot(x-self.rbt_x_, y-self.rbt_y_)
+            pose = self.path_poses_[i]
+            dist = hypot(pose.pose.position.x - self.rbt_x_,
+                         pose.pose.position.y - self.rbt_y_)
 
             if dist >= self.lookahead_distance_:
                 lookahead_idx = i
@@ -126,18 +124,18 @@ class Controller(Node):
 
 
         # Get the lookahead coordinates
-        lookahead_x, lookahead_y = self.path_poses_[lookahead_idx]
+        lookahead_pose = self.path_poses_[lookahead_idx]
 
         # Publish the lookahead coordinates
         msg_lookahead = PoseStamped()
         msg_lookahead.header.stamp = self.get_clock().now().to_msg()
         msg_lookahead.header.frame_id = "map"
-        msg_lookahead.pose.position.x = lookahead_x
-        msg_lookahead.pose.position.y = lookahead_y
+        msg_lookahead.pose.position.x = lookahead_pose.pose.position.x
+        msg_lookahead.pose.position.y = lookahead_pose.pose.position.y
         self.pub_lookahead_.publish(msg_lookahead)
 
         # Return the coordinates
-        return lookahead_x, lookahead_y
+        return lookahead_pose
 
     # Implement the pure pursuit controller here
     def callbackTimer_(self):
@@ -145,31 +143,31 @@ class Controller(Node):
             return  # return silently if path or odom is not received.
 
         # get lookahead point
-        lookahead_x, lookahead_y = self.getLookaheadPoint_()
+        lookahead_pose = self.getLookaheadPoint_()
 
         # get distance to lookahead point (not to be confused with lookahead_distance)
-        dx = lookahead_x-self.rbt_x_
-        dy = lookahead_y-self.rbt_y_
+        dx = lookahead_pose.pose.position.x - self.rbt_x_
+        dy = lookahead_pose.pose.position.y - self.rbt_y_
         target_x = cos(self.rbt_yaw_)*dx + sin(self.rbt_yaw_)*dy
         target_y = -sin(self.rbt_yaw_)*dx + cos(self.rbt_yaw_)*dy
 
         distance = hypot(target_x, target_y)
 
         # stop the robot if close to the destination
-        goal_x, goal_y = self.path_poses_[-1]
+        goal_pose = self.path_poses_[-1]
         goal_dist = hypot(
-            goal_x-self.rbt_x_,
-            goal_y-self.rbt_y_
+            goal_pose.pose.position.x - self.rbt_x_,
+            goal_pose.pose.position.y - self.rbt_y_
         )
 
         if goal_dist <= self.stop_thres_:
-            lin_vel = 0
-            ang_vel = 0
+            lin_vel = 0.0
+            ang_vel = 0.0
 
         elif distance < 1e-6:
             self.get_logger().warn("Invalid lookahead point!")
-            lin_vel = 0
-            ang_vel = 0
+            lin_vel = 0.0
+            ang_vel = 0.0
 
         # get curvature
         else:
