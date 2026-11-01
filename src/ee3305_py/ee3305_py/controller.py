@@ -7,7 +7,6 @@ from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Odometry, Path
 from sensor_msgs.msg import LaserScan
 
-
 class Controller(Node):
 
     def __init__(self, node_name="controller"):
@@ -32,14 +31,34 @@ class Controller(Node):
 
         # Handles: Topic Subscribers
         # !TODO: path subscriber
-
+        self.path_subscription = self.create_subscription(
+            Path,
+            'path',
+            self.callbackSubPath_,
+            10
+        )
+        
         # !TODO: odometry subscriber
+        self.odom_subscription = self.create_subscription(
+            Odometry,
+            'odom',
+            self.callbackSubOdom_,
+            10
+        )
 
         # Handles: Topic Publishers
         # !TODO: command velocities publisher
-
+        self.pub_cmd_vel_ = self.create_publisher(
+            TwistStamped,
+            'cmd_vel',
+            10
+        )
         # !TODO: lookahead point publisher
-        
+        self.pub_lookahead_ = self.create_publisher(
+            PoseStamped,
+            'lookahead_point',
+            10
+        )
         # Handles: Timers
         self.timer = self.create_timer(1.0 / self.frequency_, self.callbackTimer_)
 
@@ -58,15 +77,21 @@ class Controller(Node):
         # !TODO: copy the array from the path
         self.path_poses_ = []
 
+        for pose in msg.poses:
+            x = pose.pose.position.x
+            y = pose.pose.position.y
+            self.path_poses_.append((x,y))
+
         self.received_path_ = True
 
     # Odometry subscriber callback
     def callbackSubOdom_(self, msg: Odometry):
         # !TODO: write robot pose to rbt_x_, rbt_y_, rbt_yaw_
         self.rbt_x_ = msg.pose.pose.position.x
-
+        self.rbt_y_ = msg.pose.pose.position.y
         q = msg.pose.pose.orientation
-        self.rbt_yaw_ = q.w
+
+        self.rbt_yaw_ = 2.0 * atan2(q.z, q.w)
 
         self.received_odom_ = True
 
@@ -74,15 +99,34 @@ class Controller(Node):
     # Make sure path and robot positions are already received, and the path contains at least one point.
     def getLookaheadPoint_(self):
         # Find the point along the path that is closest to the robot
+        closest_idx = 0
+        closest_dist = inf
 
+        for i, pose in enumerate(self.path_poses_):
+            x, y = pose
+            dist = hypot(x-self.rbt_x_, y-self.rbt_y_)
+
+            if dist<closest_dist:
+                closest_dist = dist
+                closest_idx = i
+    
         # From the closest point, iterate towards the goal and find the first point that is at least a lookahead distance away.
         # Return the goal point if no such lookahead point can be found
         lookahead_idx = len(self.path_poses_) - 1
 
+        for i in range(closest_idx, len(self.path_poses_)):
+            x, y = self.path_poses_[i]
+
+            dist = hypot(x-self.rbt_x_, y-self.rbt_y_)
+
+            if dist >= self.lookahead_distance_:
+                lookahead_idx = i
+                break 
+
+
+
         # Get the lookahead coordinates
-        lookahead_pose = self.path_poses_[lookahead_idx]
-        lookahead_x = lookahead_pose.pose.position.x
-        lookahead_y = lookahead_pose.pose.position.y
+        lookahead_x, lookahead_y = self.path_poses_[lookahead_idx]
 
         # Publish the lookahead coordinates
         msg_lookahead = PoseStamped()
@@ -104,18 +148,47 @@ class Controller(Node):
         lookahead_x, lookahead_y = self.getLookaheadPoint_()
 
         # get distance to lookahead point (not to be confused with lookahead_distance)
+        dx = lookahead_x-self.rbt_x_
+        dy = lookahead_y-self.rbt_y_
+        target_x = cos(self.rbt_yaw_)*dx + sin(self.rbt_yaw_)*dy
+        target_y = -sin(self.rbt_yaw_)*dx + cos(self.rbt_yaw_)*dy
 
-        # stop the robot if close to the point.
+        distance = hypot(target_x, target_y)
+
+        # stop the robot if close to the destination
+        goal_x, goal_y = self.path_poses_[-1]
+        goal_dist = hypot(
+            goal_x-self.rbt_x_,
+            goal_y-self.rbt_y_
+        )
+
+        if goal_dist <= self.stop_thres_:
+            lin_vel = 0
+            ang_vel = 0
+
+        elif distance < 1e-6:
+            self.get_logger().warn("Invalid lookahead point!")
+            lin_vel = 0
+            ang_vel = 0
 
         # get curvature
+        else:
+            curvature = 2.0*target_y/(distance**2)
 
         # calculate velocities
-
+            lin_vel = self.lookahead_lin_vel_
+            ang_vel = lin_vel*curvature
+        
         # saturate velocities. The following can result in the wrong curvature,
         # but only when the robot is travelling too fast (which should not occur if well tuned).
-        lin_vel = 0.0
-        ang_vel = 0.0 * lookahead_x * lookahead_y
-
+            if abs(lin_vel) > self.max_lin_vel_ or abs(ang_vel) >self.max_ang_vel_:
+                scale = max(
+                    abs(lin_vel)/self.max_lin_vel_,
+                    abs(ang_vel)/self.max_ang_vel_
+                )
+                lin_vel /= scale
+                ang_vel /= scale
+            
         # publish velocities
         msg_cmd_vel = TwistStamped()
         msg_cmd_vel.header.stamp = self.get_clock().now().to_msg()
