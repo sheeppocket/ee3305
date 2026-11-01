@@ -6,6 +6,6 @@ map_loader:
     topic_map: "/map"           # {string}
     topic_global_costmap: "/global_costmap"   #{string}
     circumscribed_radius: 0.2   # {double} [m]
-    inflation_radius: 0.8       # {double} [m]
+    inflation_radius: 0.5       # {double} [m]
     cost_exponent: 8.0          # {double}
     # filepath: "src/ee3305_bringup/maps/ee3305" # {string} this will be overridden by the launch file.
