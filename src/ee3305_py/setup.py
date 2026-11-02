@@ -23,6 +23,11 @@ setup(
             'behavior = ee3305_py.behavior:main',
             'planner = ee3305_py.planner:main',
             'controller = ee3305_py.controller:main',
+            'online_navigator = ee3305_py.online_slam:main',
+            'slam_pose = ee3305_py.online_slam:pose_main',
+            'online_safety = ee3305_py.online_safety:main',
+            'online_planner = ee3305_py.online_adapters:planner_main',
+            'online_controller = ee3305_py.online_adapters:controller_main',
         ],
     },
 )
