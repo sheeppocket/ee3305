@@ -14,3 +14,5 @@
 [05_Planner.md](docs/05_Planner.md)
 
 [06_Bash_Scripts.md](docs/06_Bash_Scripts.md)
+
+[07_Online_SLAM.md](docs/07_Online_SLAM.md) — navigate toward a goal without a prior map, using Cartographer, the existing planner, and Pure Pursuit.

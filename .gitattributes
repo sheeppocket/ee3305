@@ -1,0 +1,2 @@
+# These scripts must run on Linux even when edited from the Windows checkout.
+scripts/*.sh text eol=lf
